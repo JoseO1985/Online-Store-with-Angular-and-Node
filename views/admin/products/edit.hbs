@@ -1,0 +1,48 @@
+<h1>Gestión de productos</h1>          	          	
+          	<!-- BASIC FORM ELELEMNTS -->
+          	<div class="row mt">
+          		<div class="col-lg-12">
+                  <div class="form-panel">
+                      <form class="form-horizontal style-form" method="post" action="/admin/products/update">
+                          <div class="form-group">
+                              <label class="col-sm-2 col-sm-2 control-label">Nombre</label>
+                              <div class="col-sm-10">
+                                  <input name="name" value="{{product.name}}" class="form-control" type="text">
+                              </div>
+                          </div>
+                          <div class="form-group">
+                              <label class="col-sm-2 col-sm-2 control-label">Imagen</label>
+                              <div class="col-sm-10">
+                                  <input name="imagefile" value="{{product.imagefile}}" class="form-control" type="text">
+                                  <img src="/images/{{product.imagefile}}" style="width:30px;">                                
+                              </div>
+                          </div>
+                          <div class="form-group">
+                              <label class="col-sm-2 col-sm-2 control-label">Descripción</label>
+                              <div class="col-sm-10">
+                                  <textarea row="10" name="description" class="form-control round-form">{{product.description}}</textarea>
+                              </div>
+                          </div>
+                          <div class="form-group">
+                              <label class="col-sm-2 col-sm-2 control-label">Precio</label>
+                              <div class="col-sm-10">
+                                  <input name="price" value="{{product.price}}" class="form-control" type="text">
+                              </div>
+                          </div>
+                          <div class="form-group">
+                              <label class="col-sm-2 col-sm-2 control-label">Instock</label>
+                              <div class="col-sm-10">
+                                  <input name="instock" value="{{product.instock}}" class="form-control" id="disabledInput" type="text">
+                              </div>
+                          </div>
+                         <button type="submit" value="btn_save" class="btn btn-theme">Actualizar</button>                         
+                        <a href="/admin/products">Cancelar</a>
+                        <input type="hidden" name="id" value="{{product._id}}">                        
+                      </form>
+                  </div>
+          		</div><!-- col-lg-12-->      	
+          	</div><!-- /row -->
+          	
+          	<!-- /row -->
+          	
+          	

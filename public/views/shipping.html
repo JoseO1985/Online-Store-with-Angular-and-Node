@@ -1,0 +1,22 @@
+<section name="form-shipping"><!--form-->
+    <div class="container">
+		<div class="shopper-informations">
+						<div class="row">
+							<div class="col-sm-5 col-sm-offset-1">
+								<div class="shipping-info">
+									<p>Ship To</p>
+									<form name="form-shipping" novalidate>
+										<input type="text" placeholder="Name" ng-model="customer.shipping[0].name"/>
+										<input type="text" placeholder="Address" ng-model="customer.shipping[0].address"/>
+										<input type="text" placeholder="City" ng-model="customer.shipping[0].city"/>
+										<input type="text" placeholder="State" ng-model="customer.shipping[0].state"/>
+										<input type="text" placeholder="Zip" ng-model="customer.shipping[0].zip"/>
+										<button ng-show="showBilling()" class="btn btn-default" type="submit" ng-click="setShipping()" ng-disabled="form-shipping.$invalid">Continue to Billing</button>
+									     <a ui-sref="home" class="btn btn-primary">Continue to Shopping</a>
+									</form>             
+								</div>
+							</div>								
+						</div>
+					</div>
+				</div>
+			</section>

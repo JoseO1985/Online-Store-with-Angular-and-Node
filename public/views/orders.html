@@ -1,0 +1,24 @@
+<div class="orders-history">
+	<h2>Orders History</h2>
+</div>
+<div id="ordersContainer">
+  <div class="listItem" ng-repeat="order in orders">
+    <p class="itemTitle">Order #{{$index+1}}</p>
+    <p class="prodDesc">Placed {{order.timestamp|date:'short'}}</p>
+    <p class="status">{{order.status}}</p>
+	  <div class="listItem" ng-repeat="item in order.items" 
+	    ng-init="product=item.product[0]">
+	    <img class="listImg" ng-click="setProduct(product._id)"
+	         ng-src="../images/{{product.imagefile}}" />
+	    <span class="prodName">{{product.name}}</span>
+	    <span >
+	      <span class="price">{{product.price|currency}}</span>
+	      <label class="quantity">{{item.quantity}}</label>
+	      <label class="quantity">Quantity</label>
+	    </span>
+	  </div>
+  </div>
+  <div>
+   	<a ui-sref="home" class="btn btn-primary">Continue to Shopping</a>
+  </div>
+</div>

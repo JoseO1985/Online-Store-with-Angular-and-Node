@@ -1,0 +1,39 @@
+<h1>{{{title}}}</h1>
+	<div class="row mt">
+                  <div class="col-md-12">
+                      <div class="content-panel">
+                          <h4><a href="/admin/products/new">Agregar producto </a></h4><hr>
+                          <table class="table table-striped table-advance table-hover">
+                              <thead>
+                              <tr>
+                                  <th><i class="fa fa-bullhorn"></i> Nombre</th>
+                                  <th class="hidden-phone"><i class="fa fa-question-circle"></i> Imagen</th>
+                                  <th><i class="fa fa-bookmark"></i> Descripción</th>
+                                  <th><i class=" fa fa-edit"></i> Precio</th>
+                                  <th><i class=" fa fa-edit"></i> Stock</th>
+                                  <th>Operaciones</th>
+                              </tr>
+                              </thead>
+                              <tbody>
+                              {{#each products}}
+                              <tr>
+                                  <td> <a href="/admin/products/edit/{{_id}}">{{name}}</a></td>
+                                  <td class=""><img src="/images/{{imagefile}}" style="width:30px;"></td>
+                                  <td width="20%">{{description}} </td>
+                                  <td>{{price}} $</td>
+                                  <td><span class="label label-info label-mini">{{instock}}
+                                  </span></td>
+                                  <td>
+                                      <a href="/admin/products/view/{{_id}}"><button class="btn btn-success btn-xs"><i class="fa fa-check"></i></button></a>
+                                      <a href="/admin/products/edit/{{_id}}"><button class="btn btn-primary btn-xs"><i class="fa fa-pencil"></i></button></a>
+                                      <a href="/admin/products/delete/{{_id}}"><button class="btn btn-danger btn-xs"><i class="fa fa-trash-o "></i></button></a>
+                                  </td>
+                              </tr>
+                              {{/each}}                              
+                              </tbody>
+                          </table>
+                      </div><!-- /content-panel -->
+                  </div><!-- /col-md-12 -->
+              </div>
+
+			

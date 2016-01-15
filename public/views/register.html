@@ -1,0 +1,22 @@
+<section name="form-register"><!--form-->
+    <div class="container">
+      <div class="row">
+        <div class="col-sm-4 col-sm-offset-1">
+          <div ng-hide="authenticated" class="signup-form"><!--sign up form-->
+            <h2>New User Signup!</h2>
+            <form name="form-register" novalidate>
+              <input name="email" type="email" placeholder="Email Address" ng-model="regemail" ng-required="true">
+              <input type="password" placeholder="Password" ng-model="regpassword" ng-required="true">
+              <div ng-show="invalidCredentials">
+                  <p style="padding:5px" class="bg-danger">Invalid email/password</p>
+              </div>
+              <div class="error">
+                  <p style="padding:5px" class="bg-danger">{{error}}</p>
+              </div>
+              <button class="btn btn-default" type="submit" ng-click="signup()" ng-disabled="form-register.$invalid">Register</button>
+            </form>
+          </div><!--/sign up form-->
+          <div><username ng-show="authenticated"></username></div>
+      </div>
+    </div>
+  </section>

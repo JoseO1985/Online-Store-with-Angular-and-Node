@@ -1,0 +1,39 @@
+<section name="form-billing"><!--form-->
+<div class="container">
+	<div class="billing-informations">
+		<div class="row">
+			<div class="col-sm-5 col-sm-offset-1">
+				<div class="billing-info">
+					<p>Bill To</p>
+					<form name="form-billing" novalidate>
+						<select ng-model="customer.billing[0].cardtype">
+							<option value="">-- Card --</option>
+							<option value="Visa">Visa</option>
+							<option value="MasterCard">MasterCard</option>			
+						</select>
+						<input type="text" placeholder="Name on Card" ng-model="customer.billing[0].name"/>
+						<input type="text" placeholder="Card Number" ng-model="customer.billing[0].number"/>
+						<br><p>Expires</p> 
+						<select ng-model="customer.billing[0].expiremonth" ng-options="m for m in months">
+							<option value="">-- Month --</option>
+						</select>
+						<br><br>
+  						<select ng-model="customer.billing[0].expireyear"  ng-options="m for m in years">
+  							<option value="">-- Year --</option>
+  						</select>
+						<input type="text" placeholder="Card CCV" ng-model="ccv"/>
+						<p>Billing Address</p>
+						<input type="text" placeholder="Name" ng-model="customer.billing[0].address[0].name"/>
+						<input type="text" placeholder="Address" ng-model="customer.billing[0].address[0].address"/>
+						<input type="text" placeholder="City" ng-model="customer.billing[0].address[0].city"/>
+						<input type="text" placeholder="State" ng-model="customer.billing[0].address[0].state"/>
+						<input type="text" placeholder="Zip" ng-model="customer.billing[0].address[0].zip"/>
+						<button ng-show="showReview()" class="btn btn-default" type="submit" ng-click="verifyBilling(ccv)" ng-disabled="form-billing.$invalid">Verify Billing</button>
+						<a ui-sref="home" class="btn btn-primary">Continue to Shopping</a>
+					</form>             
+				</div>
+			</div>								
+		</div>
+	</div>
+</div>
+</section>

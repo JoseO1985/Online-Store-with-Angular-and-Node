@@ -1,0 +1,16 @@
+<h2 class="title text-center">Featured Books</h2>
+					<div ng-repeat="product in products"><!--features_items-->
+						<div  class="col-sm-4 featured_items">
+							<div class="product-image-wrapper">
+								<div class="single-products">
+										<div class="productinfo text-center">
+											<img ui-sref="product({id: product._id})" ng-src="../images/{{product.imagefile}}" title="View the description" />
+											<h2>${{product.price}}</h2>
+											<p>{{product.name}}</p>
+											<a data-ng-click="addToCart(product._id)" class="btn btn-default add-to-cart"><i class="fa fa-shopping-cart"></i>Add to cart</a>
+										</div>										
+								</div>
+								
+							</div>
+						</div>						
+					</div>

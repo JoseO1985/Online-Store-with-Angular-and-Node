@@ -1,0 +1,21 @@
+<div class="product-details"><!--product-details-->
+						<div class="col-sm-2">
+							<div class="view-product">
+								<img alt="" ng-src="../images/{{product.imagefile}}">
+							</div>							
+						</div>
+						<div class="col-sm-7">
+							<div class="product-information"><!--/product-information-->
+								<h2>{{product.name}}</h2>
+								<p ng-bind-html="product.description">{{product.description}}</p>
+								<span>
+									<span>{{product.price|currency}}</span>
+									<button ng-controller="CartController" data-ng-click="addToCart(product._id)" class="btn btn-fefault cart" type="button">
+										<i class="fa fa-shopping-cart"></i>
+										Add to cart
+									</button>
+								</span>	
+								<div><a style="color:#696763" ui-sref="home">Go Back</a></div>							
+							</div><!--/product-information-->
+						</div>
+					</div>

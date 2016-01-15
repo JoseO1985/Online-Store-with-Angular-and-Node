@@ -1,0 +1,27 @@
+<!--<div id="productsContainer">
+  <div class="listItem" ng-repeat="product in products">
+    <img class="listImg" ng-click="setProduct(product._id)"
+         ng-src="../images/{{product.imagefile}}" />
+    <span class="prodName">{{product.name}}</span>
+    <span class="price">{{product.price|currency}}</span>
+  </div>
+</div>
+-->
+<div class="products">
+<h3>Books</h3>
+				<ul ng-repeat="product in products">
+					<li>
+						<div class="product">
+							<a ui-sref="product({id: product._id})" class="info">
+								<span class="holder">
+									<img ng-src="../images/{{product.imagefile}}" src="css/images/image01.jpg" alt="" />
+									<span class="book-name">{{product.name}}</span>
+									<!--<span class="author">by John Smith</span>-->
+									<span ng-bind-html="product.description" class="description">{{product.description}}</span>
+								</span>
+							</a>
+							<a href="#" class="buy-btn">BUY NOW <span class="price"><span class="low">$</span>{{product.price}}<span class="high">00</span></span></a>
+						</div>
+					</li>					
+				</ul>
+</div>

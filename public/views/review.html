@@ -1,0 +1,86 @@
+<div class="review-payment">
+	<h2>Review &amp; Payment</h2>
+</div>
+<div class="table-responsive cart_info">
+	<table class="table table-condensed">
+		<thead>
+		<tr class="cart_menu">
+			<td class="image">Item</td>
+			<td class="description"></td>
+			<td class="price">Price</td>
+			<td class="quantity">Quantity</td>
+		</tr>
+		</thead>
+		<tbody ng-repeat="item in customer.cart" ng-init="product=item.product[0]">
+		<tr>
+			<td class="cart_product">
+				<img ui-sref="product({id: product._id})" title="view the description" ng-src="../images/{{product.imagefile}}">
+			</td>
+			<td class="cart_description">
+				<h4><a href="">{{product.name}}</a></h4>
+			</td>
+			<td class="cart_price">
+				<p>{{product.price|currency}}</p>
+			</td>
+			<td class="cart_quantity">
+   				<p>{{item.quantity}}</p>
+			</td>		
+		</tr>						
+		</tbody>
+	</table>
+	<div class="total_area col-sm-6">
+		<ul>
+			<li>Shipping Cost <span>{{shipping|currency}}</span></li>
+			<li>Total <span>{{cartTotal2(customer.cart)|currency}}</span></li>
+			<!--<li><span>{{cartLength()}}</span></li>-->	
+		</ul>		
+	</div>
+</div>
+<div class="col-sm-12">
+    <div class="col-sm-6 shipping-info">
+      <p>Shipping</p>
+      {{customer.shipping[0].name}}<br>
+      {{customer.shipping[0].address}}<br>
+      {{customer.shipping[0].city}}, 
+      {{customer.shipping[0].state}}
+      {{customer.shipping[0].zip}}<br>
+    </div>
+    <div class="col-sm-6 billing-info">
+      <p>Billing</p>
+      {{customer.billing[0].cardtype}} ending in
+      {{customer.billing[0].number.slice(-5,-1)}}<br>
+      {{customer.billing[0].address[0].name}}<br>
+      {{customer.billing[0].address[0].address}}<br>
+      {{customer.billing[0].address[0].city}}, 
+      {{customer.billing[0].address[0].state}}
+      {{customer.billing[0].address[0].zip}}<br>
+    </div>
+</div>
+<div class="reviews col-sm-12">
+	
+
+	<!--<form action="http://localhost:3000/apiorder/test" method="post">-->
+	<form action="https://www.sandbox.paypal.com/cgi-bin/webscr" method="post">
+		<input type="hidden" name="cmd" value="_cart">
+		<input type="hidden" name="business" value="ordicu85-facilitator@gmail.com">						
+		<input type="hidden" name="upload" value="1">
+		<input type="hidden" name="return" value="http://762a258d.ngrok.io/orders">
+
+	</form>
+	<!-- <form method="post" action="https://www.sandbox.paypal.com/cgi-bin/webscr">
+		<input type="hidden" name="cmd" value="_cart" >
+		<input type="hidden" name="business" value="ordicu85-facilitator@gmail.com" >
+		<input type="hidden" name="upload" value="1">
+		<input type="hidden" name="item_name_1" value="Carte Blanche">
+		<input type="hidden" name="amount_1" value="23.00">
+		<input type="hidden" name="shipping_1" value="23.00">
+		<input type="hidden" name="item_name_2" value="Trader of Secrets">
+		<input type="hidden" name="amount_2" value="12.00">
+		<input type="hidden" name="shipping_2" value="12.00">
+		<input type="submit" value="PayPal">  	
+	</form> -->
+	
+	<button class="btn btn-default" type="submit" ng-show="customer.cart.length != 0" ng-click="makePurchase()">Make Purchase</button>
+
+	<a ui-sref="home" class="btn btn-primary">Continue to Shopping</a>
+</div>

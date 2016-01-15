@@ -1,0 +1,43 @@
+<div class="table-responsive cart_info">
+				<table class="table table-condensed">
+					<thead>
+						<tr class="cart_menu">
+							<td class="image">Item</td>
+							<td class="description"></td>
+							<td class="price">Price</td>
+							<td class="quantity">Quantity</td>
+							<td></td>
+						</tr>
+					</thead>
+					<tbody ng-repeat="item in cart" ng-init="product=item.product[0]">
+						<tr>
+							<td class="cart_product">
+								<img ui-sref="product({id: product._id})" title="view the description" ng-src="../images/{{product.imagefile}}">
+							</td>
+							<td class="cart_description">
+								<h4><a href="">{{product.name}}</a></h4>
+							</td>
+							<td class="cart_price">
+								<p>{{product.price|currency}}</p>
+							</td>
+							<td class="cart_quantity">
+								<div class="cart_quantity_button">
+     								<input class="cart_quantity_input" type="number" min="1" ng-model-options="{ debounce: 500 }" ng-change="updateCartQuantity(cart)" ng-model="item.quantity" />
+								</div>
+							</td>							
+							<td class="cart_delete">
+								<a data-ng-click="deleteFromCart(product._id)" class="cart_quantity_delete"><i class="fa fa-times"></i></a>
+							</td>
+						</tr>						
+					</tbody>
+				</table>
+				<div class="total_area col-sm-6">
+						<ul>
+							<li>Shipping Cost <span>{{shipping|currency}}</span></li>
+							<li>Total <span>{{cartTotal()|currency}}</span></li>
+							<!--<li><span>{{cartLength()}}</span></li>-->	
+						</ul>
+					<a ng-show="cart.length != 0" ui-sref="shipping" class="btn btn-default check_out">Check Out</a>
+					<a href="/" class="btn btn-default update">Continue Shopping</a>
+					</div>
+			</div>

@@ -1,0 +1,19 @@
+<div class="products">
+<div id="productContainer">
+   <img class="fullImg" 
+        ng-src="../images/{{product.imagefile}}" />
+   <div class="prodInfo">
+   <div data-ng-bind="error" class="error"></div>
+	   <p class="itemTitle">{{product.name}}</p>
+     <p ng-bind-html="product.description" class="prodDesc">{{product.description}}</p>
+     <p class="fullPrice">{{product.price|currency}}</p>
+	   <p class="status">{{product.instock}} available</p>
+	   <div class="cartButton" >
+	     Add to Cart 
+			<a class="cart" ui-sref="cart"><img alt="" src="css/images/cart-icon.png"></a>	   
+	   </div>
+	   <div style="clear:both"></div>	   
+	   <div><a ui-sref="home">Go Back</a></div>
+   </div>
+</div>
+</div>
