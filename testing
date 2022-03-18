@@ -1,0 +1,993 @@
+import { HttpClient, HttpHeaders, HttpRequest, HttpResponse } from '@angular/common/http';
+import { Injectable } from '@angular/core';
+import { Router } from '@angular/router';
+import { Observable, of, throwError as observableThrowError, BehaviorSubject, iif, throwError } from 'rxjs';
+import { catchError, delay, map, mergeMap, publishReplay, refCount, tap, retryWhen, concatMap, retry, timeout } from 'rxjs/operators';
+import { NbopflConstants } from '../../../constants/constants';
+import { rxlog } from '../library/opersrx';
+import { IMock } from '../../models/mock-util';
+import { UserDataMock, UserMock } from './customer-mock';
+import { LoadingService } from '../loading/loading.service';
+import { ErrorService } from '../error/error.service';
+import { StorageService } from '../storage/storage.service';
+import { DsconfigService } from '../dsconfig/dsconfig.service';
+import { EventsService } from '../events/events.service';
+import { TealiumService } from '../tealium/tealium.service';
+import { MockInterceptorService } from '../mockutil/mock-interceptor.service';
+import { ScaInfoService } from '../sca/sca-info.service';
+import { ObservatoryService } from '../observatory/observatory.service';
+
+declare let JSEncrypt: any;
+// Objeto con las categorias de aviso para Tealium
+// Usado como parametro de la funcion: sendTealiumEvent
+const categoryEvent = {
+  aviso: 'avisos',
+  error: 'error'
+};
+
+const errorServer = '/error/server';
+
+enum methods {
+  'get',
+  'post',
+  'put',
+  'patch',
+  'delete'
+}
+
+/**
+ * Elementos posibles que pueden llegar al restconn como propiedades
+ * loading Activa la carga parcial del loading (se incorpora con <app-loading name="<name>">)
+ * lock Activa el bloqueo de página del loading
+ * cache Habilita la cache en la llamada, haciendo se consuma el observable previo
+ * retry Numero de veces que se ha de repetir la llamada si esta falla
+ * forceWarning Si viene algun error lo gestionará siempre como warnings
+ * disableErrors fuerza que no se gestione ningun error mediante el sistema de errores por defecto
+ * errPrefix Prefijo que le va a poner al sistema de errores para intanciarlo
+ * collection Objeto que va a contener ids y valores de las urls que se van a consumir
+ * headers inyecta cabeceras a las llamadas
+ */
+interface PropertiesRestConn {
+  loading?: boolean;
+  lock?: boolean;
+  cache?: boolean;
+  retry?: number;
+  collection?: object;
+  forceWarning?: boolean;
+  disableErrors?: boolean;
+  errPrefix?: string;
+  headers?: object;
+  delay?: number;
+  mockUtil?: boolean;
+  mockData?: IMock;
+  responseType?: string;
+  schema?: object;
+  checkStatus?: Array<number>;
+  enableQueryParamsOnGet?: boolean;
+  encrypt?: boolean;
+  timeout?: number;
+  customError?: boolean;
+  canal?: string;
+  contentType?: string;
+}
+
+/**
+ * Sistema para realizar llamadas rest sincronizadas con loading and error services
+ */
+@Injectable({ providedIn: 'root' })
+export class RestConnService {
+  collection: Object;
+  // httpOptions;
+  type: methods;
+  headers: object;
+  customer: any;
+  token: any;
+  sessionId: string;
+  sessionToken: string;
+  xclient: string;
+  appinit: string;
+
+  activeRest: Array<string> = [];
+  private readonly hasActiveRestBS = new BehaviorSubject<Array<string>>(this.activeRest);
+  public hasActiveRest$ = this.hasActiveRestBS.asObservable();
+  public hasLoggedOut = false;
+
+  constructor(
+    public _http: HttpClient,
+    public loading: LoadingService,
+    public err: ErrorService,
+    public router: Router,
+    public storage: StorageService,
+    public dsConfig: DsconfigService,
+    public events: EventsService,
+    private readonly _tealium: TealiumService,
+    private readonly mockServ: MockInterceptorService,
+    // private schemaService: SchemaService,
+    private readonly scaInfoService: ScaInfoService,
+    private readonly observatoryService: ObservatoryService
+    // private modalService: ModalService
+  ) {
+    this.collection = {};
+    this.customer = this.storage.get(NbopflConstants.UserData.CUSTOMER);
+    this.token = this.storage.get(NbopflConstants.UserData.TOKEN);
+    this.sessionId = this.storage.get(NbopflConstants.UserData.sid);
+    this.sessionToken = this.storage.get(NbopflConstants.UserData.sessionToken);
+  }
+
+  public setHeader(propertyRef) {
+    const canal = propertyRef.canal ? propertyRef.canal : 'INT';
+    const content_type = propertyRef.contentType ? propertyRef.contentType : 'application/json';
+    this.headers = {
+      'Content-Type': content_type,
+      'session-ID': this.sessionId,
+      'sessionToken': this.storage.get(NbopflConstants.UserData.sessionToken),
+      Authorization: 'Bearer ' + this.token,
+      language: 'es-ES',
+      // 'language': userLang.language, // Poner eso para la deteccion de idioma
+      'X-ClientId': this.xclient,
+      'app-Init': this.appinit,
+      'X-Santander-Channel': canal,
+      'nhb-url': window.location.href,
+      'csid': sessionStorage.getItem(NbopflConstants.UserData.utag7) + '-' + JSON.parse(sessionStorage.getItem(NbopflConstants.UserData.CUSTOMER)).uid
+    };
+    // No hay necesidad de especificar el Content-Type manualmente en este caso, porque es agregado automáticamente por angular
+    if (this.headers['Content-Type'] === 'multipart/form-data') {
+      delete this.headers['Content-Type'];
+    }
+  }
+
+  public getHeader(): any {
+    return this.headers;
+  }
+
+  public getImageHeaders() {
+    const canal = 'INT';
+    return {
+      'session-ID': this.sessionId,
+      'sessionToken': this.storage.get(NbopflConstants.UserData.sessionToken),
+      Authorization: 'Bearer ' + this.token,
+      language: 'es-ES',
+      // 'language': userLang.language, // Poner eso para la deteccion de idioma
+      'X-ClientId': this.xclient,
+      'app-Init': this.appinit,
+      'X-Santander-Channel': canal,
+      'nhb-url': window.location.href,
+      'csid': sessionStorage.getItem(NbopflConstants.UserData.utag7) + '-' + JSON.parse(sessionStorage.getItem(NbopflConstants.UserData.CUSTOMER)).uid
+    };
+  }
+
+  /**
+   * Redirección a la página de login
+   */
+  public logout() {
+    // RAÚL: CONTROL DE LOGIN - Si no tenemos CUSTOMER es que hay error de login y redirigimos a donde corresponda.
+    if (!this.storage.get('enableMocks')) {
+      if (window.location.hostname !== 'localhost') {
+        window.location.href = '/login/';
+        return;
+      } else {
+        window.location.href = '/assets/lanzadera.html';
+        return;
+      }
+    } else {
+      window.location.href = '/assets/lanzadera.html';
+    }
+  }
+
+  /**
+   * Genera un id en base a la url a consumir y los parametros que se le envian a ese id
+   * @param toReturnRef Este concuadra con el objeto que devuelve analyceProp, ha de contener ".url"
+   * @param data Array de los parametros que se le envian
+   */
+  public generateId(toReturnRef, data, properties) {
+    return toReturnRef.url + JSON.stringify(data) + JSON.stringify(properties) + JSON.stringify(this.headers);
+  }
+
+  /**
+   * @function setOpenLoadings
+   * @description Función que cierra el tipo de loading correspondiente a la llamada
+   * @param {*} properties
+   * @param {string} name
+   * @memberof RestConnService
+   */
+  setOpenLoadings(properties: any, name: string) {
+    if (properties.lock) {
+      this.loading.fullPageOpen(name);
+    } else if (properties.loading) {
+      this.loading.partialLoadingOpen(name);
+    }
+  }
+
+  /**
+   * @function setCloseLoadings
+   * @description Función que abre el tipo de loading correspondiente a la llamada
+   * @param {*} properties
+   * @param {string} name
+   * @memberof RestConnService
+   */
+  setCloseLoadings(properties: any, name: string): void {
+    if (properties.lock) {
+      this.loading.fullPageClose(name);
+    } else if (properties.loading) {
+      this.loading.partialLoadingClose(name);
+    }
+  }
+
+  /**
+   * Indica si hay llamadas restconn
+   * @param id Id restconn
+   */
+  public setActiveRest(id) {
+    if (id !== '') {
+      this.deleteActiveRest(id);
+      const positionRef = this.activeRest.indexOf(id);
+      if (positionRef === -1) {
+        this.activeRest.push(id);
+        this.hasActiveRestBS.next(this.activeRest);
+      }
+    }
+  }
+
+  /**
+   * Elimina un id del total de llamadas restconn
+   * @param id Id restconn
+   */
+  public deleteActiveRest(id) {
+    const positionRef = this.activeRest.indexOf(id);
+    if (positionRef !== -1) {
+      this.activeRest.splice(positionRef, 1);
+      // setTimeout(() => {
+      this.hasActiveRestBS.next(this.activeRest);
+      // }, 200);
+    }
+  }
+  /**
+   * Elimina el total de llamadas restconn
+   * @param id Id restconn
+   */
+  public deleteAllActiveRest() {
+    if (this.activeRest.length > 0) {
+      this.activeRest = [];
+      this.hasActiveRestBS.next(this.activeRest);
+    }
+  }
+
+  /**
+   * Elimina un id del total de llamadas restconn
+   */
+  public deleteAllHasLoadings() {
+    this.activeRest = [];
+    this.hasActiveRestBS.next(this.activeRest);
+  }
+
+  /**
+   * Función que analiza y prepara todos las opciones de la llamada rest
+   * @param name id del servicio (que se va a consumir de constants.restConn o de la collection pasada en propertyRef)
+   * @param propertyRef Interface PropertiesRestConn
+   * @param data parametros que se envian en la llamada
+   */
+  protected analyceProp(name, propertyRef: PropertiesRestConn, data) {
+    if (typeof propertyRef !== 'object') {
+      propertyRef = {};
+    }
+
+    const toReturn = {
+      // tslint:disable-line
+      url: '',
+      id: '',
+      error: false, // errores internos de proceso de datos
+      lock: false,
+      loading: false,
+      forceWarning: false,
+      disableErrors: false,
+      retry: 0, // Sync with the value of the config file
+      errPrefix: 'COMMON.CUSTOM_ERRORS.',
+      cache: propertyRef.cache || false,
+      headers: null,
+      httpOptions: null,
+      delay: 0,
+      schema: null,
+      checkStatus: null,
+      enableQueryParamsOnGet: false,
+      encrypt: false,
+      customError: true
+    };
+
+    this.token = this.storage.get(NbopflConstants.UserData.TOKEN);
+    this.sessionId = this.storage.get(NbopflConstants.UserData.sid);
+    this.xclient = this.dsConfig.get()[NbopflConstants.UserData.xclient];
+    this.appinit = this.dsConfig.get()[NbopflConstants.UserData.appinit];
+    this.setHeader(propertyRef);
+    toReturn.headers = Object.assign({}, this.headers);
+    if (typeof propertyRef.headers === 'object') {
+      Object.assign(toReturn.headers, propertyRef.headers);
+    }
+
+    toReturn.httpOptions = { headers: new HttpHeaders(toReturn.headers), observe: 'response' };
+
+    this.modifyToReturn(propertyRef, toReturn);
+    this.setOpenLoadings(toReturn, name);
+    this.err.removeWarning(name);
+
+    if (typeof propertyRef.collection !== 'object') {
+      propertyRef.collection = {};
+    }
+
+    if (propertyRef.collection[name] === undefined) {
+      if (this.dsConfig.getRoute(name) === undefined) {
+        this.err.logError('No se reconoce el nombre de la llamada rest en el repositorio: ' + name);
+        toReturn.error = true;
+      } else {
+        toReturn.url = this.dsConfig.getRoute(name);
+      }
+    } else {
+      toReturn.url = propertyRef.collection[name];
+    }
+
+    toReturn.id = this.generateId(toReturn, data, propertyRef);
+    if (toReturn.cache === false) {
+      this.collection[toReturn.id] = null;
+    }
+
+    if (this.hasLoggedOut === true && toReturn.url.indexOf(this.dsConfig.get().security.logout) === -1) {
+      toReturn.error = true;
+    }
+
+    return toReturn;
+  }
+
+  /**
+   * @description modifica el objeto toReturn.
+   * @private
+   * @param {PropertiesRestConn} propertyRef
+   * @param {{
+   *     // tslint:disable-line
+   *     url: string; id: string; error: boolean; // errores internos de proceso de datos
+   *     lock: boolean; loading: boolean; forceWarning: boolean; disableErrors: boolean; retry: number; // Sync with the value of the config file
+   *     errPrefix: string; cache: boolean; headers: any; httpOptions: any; delay: number; schema: any; checkStatus: any; enableQueryParamsOnGet: boolean; encrypt: boolean;
+   *   }} toReturn
+   * @memberof RestConnService
+   */
+  private modifyToReturn(propertyRef: PropertiesRestConn, toReturn: {
+    // tslint:disable-line
+    url: string; id: string; error: boolean; // errores internos de proceso de datos
+    lock: boolean; loading: boolean; forceWarning: boolean; disableErrors: boolean; retry: number; // Sync with the value of the config file
+    errPrefix: string; cache: boolean; headers: any; httpOptions: any; delay: number; schema: any; checkStatus: any; enableQueryParamsOnGet: boolean; encrypt: boolean;
+    timeout?: number; customError?: boolean;
+  }): void {
+    if (propertyRef.responseType) {
+      toReturn.httpOptions.responseType = propertyRef.responseType;
+    }
+    if (typeof propertyRef.retry === 'number') {
+      toReturn.retry = propertyRef.retry;
+    }
+    if (propertyRef.errPrefix) {
+      toReturn.errPrefix = propertyRef.errPrefix;
+    }
+    if (propertyRef.forceWarning) {
+      toReturn.forceWarning = true;
+    }
+    if (propertyRef.disableErrors) {
+      toReturn.disableErrors = true;
+    }
+    if (propertyRef.checkStatus) {
+      toReturn.checkStatus = true;
+    }
+    if (propertyRef.delay) {
+      toReturn.delay = propertyRef.delay;
+    }
+    if (propertyRef.lock) {
+      toReturn.lock = true;
+    } else if (typeof propertyRef.loading === 'boolean') {
+      toReturn.loading = propertyRef.loading;
+    }
+    if (propertyRef.encrypt) {
+      toReturn.encrypt = propertyRef.encrypt;
+    }
+    if (propertyRef.schema) {
+      toReturn.schema = propertyRef.schema;
+    }
+    if (propertyRef.enableQueryParamsOnGet) {
+      toReturn.enableQueryParamsOnGet = true;
+    }
+    if (propertyRef.timeout) {
+      toReturn.timeout = propertyRef.timeout;
+    }
+    if (typeof propertyRef.customError === 'boolean') {
+      toReturn.customError = propertyRef.customError;
+    }
+  }
+
+  private finishFuncionality(nameRef, propertiesExec, response) {
+    this.deleteActiveRest(nameRef);
+    this.setCloseLoadings(propertiesExec, nameRef);
+    if (response.status && response.status === 200) {
+      if (response.headers.get('sessionToken')) {
+        this.storage.set('sessionToken', response.headers.get('sessionToken'));
+      }
+      return true;
+    }
+    return false;
+  }
+
+  getHttpRequest(method, name, url, data = null, responsetype, headers): HttpRequest<object> {
+    if (methods[method] === 'get') {
+      return new HttpRequest<object>(methods[method], url, { params: data, responseType: responsetype, headers: headers });
+    } else {
+      return new HttpRequest<object>(methods[method], url, data, { params: null, responseType: responsetype, headers: headers });
+    }
+  }
+
+  /**
+   * Devuelve un observable standard de las llamadas
+   * @param method metodo por el que se va a realizar (es un enum de methods que contiene GET POST y PUT)
+   * @param name id del servicio
+   * @param propertiesExec PropertiesRestConn ya analizado
+   * @param data Parametros a enviar en la llamada rest
+   * @returns Observable para suscribirse a la llamada rest
+   */
+  private getStandardRequest(method, name, propertiesExec, data): Observable<any> {
+    let paramsToSend: Array<any>;
+    if (methods[method] === 'get') {
+      let toSend = '';
+      if (typeof data === 'string' || typeof data === 'number') {
+        toSend = '/' + data;
+        propertiesExec.url += toSend;
+      } else if (propertiesExec.enableQueryParamsOnGet) {
+        propertiesExec.httpOptions.params = data['params'];
+      } else {
+        propertiesExec.httpOptions.params = data;
+      }
+      paramsToSend = [propertiesExec.url, propertiesExec.httpOptions];
+    } else if (methods[method] === 'delete') {
+      propertiesExec.httpOptions.body = data;
+      paramsToSend = [propertiesExec.url, propertiesExec.httpOptions];
+    } else {
+      paramsToSend = [propertiesExec.url, data, propertiesExec.httpOptions];
+    }
+
+    const enableLog = false;
+    return this._http[methods[method]](...paramsToSend).pipe(
+      // this.schemaService.validateResp(propertiesExec.schema, name),
+      rxlog('before delay HTTP**** ' + name, enableLog),
+      delay(propertiesExec.delay),
+      rxlog('after delay HTTP**** ' + name, enableLog),
+      timeout(propertiesExec.timeout ? propertiesExec.timeout : 100000000),
+      map((res: any) => {
+        return this.checkSuccessErrors(name, propertiesExec, res);
+      }),
+      // Reintenta las veces indicadas en propertiesExec.retry
+      // Solo si no es un 401 y no se ha deslogado
+
+      retryWhen(errors =>
+        errors.pipe(concatMap((e, i) => iif(() => this.hasLoggedOut || e.status === 401 || i >= propertiesExec.retry, throwError(e), of(e))))
+      ),
+      // retry(propertiesExec.retry),
+      catchError((error: any) => {
+        return this.checkFailedErrors(name, propertiesExec, error);
+      })
+    );
+  }
+
+  private gotoErrorPage(page, refJson) {
+    this.loading.fullPageClose('AppModule');
+    if ((<any>window.top) !== (<any>window.self)) {
+      (<any>window.top).postMessage( { name: 'navigateOut', route: 'error/server', queryParams: refJson }, (<any>window.top).location.origin );
+    } else {
+      this.router.navigate([page], { queryParams: refJson, skipLocationChange: true });
+    }
+  }
+
+  /**
+   * Función que modifcia el observable de getStandardRequest e incorpora la finilizacion de la funcionalidad
+   * Esta modificación se realiza principalmente para las llamadas con cache
+   * @param method metodo por el que se va a realizar (es un enum de methods que contiene GET POST y PUT)
+   * @param name id del servicio
+   * @param data Parametros a enviar en la llamada rest
+   * @param properties interface PropertiesRestConn
+   */
+  protected makeRest(method: methods, name: string, data: object, properties: PropertiesRestConn): undefined {
+    // RAÚL: CONTROL DE LOGIN - Si no tenemos CUSTOMER es que hay error de login y redirigimos a donde corresponda.
+    if (!this.customer) {
+      // RAÚL: CONTROL DE LOGIN - Si no tenemos CUSTOMER es que hay error de login y redirigimos a donde corresponda.
+      this.logout();
+    }
+    name = name.replace(/xls/g, '').replace(/pdf/g, '');
+    const propertiesExec = this.analyceProp(name, properties, data);
+    if (propertiesExec.encrypt) {
+      const encrypt = new JSEncrypt();
+      encrypt.setPublicKey(this.dsConfig.get().login_post_pk);
+      const dataRef = encrypt.encrypt(JSON.stringify(data), true);
+      data = {key: dataRef};
+    }
+    this.setActiveRest(name);
+    if (!propertiesExec.error) {
+      if (!propertiesExec.cache) {
+        // reasignacion de la llamada sin cache
+        this.collection[propertiesExec.id] = this.getStandardRequest(method, name, propertiesExec, data);
+      } else if (!this.collection[propertiesExec.id]) {
+        // asignacion inicial de la llamada con cache
+        this.collection[propertiesExec.id] = this.getStandardRequest(method, name, propertiesExec, data).pipe(
+          publishReplay(1),
+          refCount()
+        );
+      } else {
+        // si llamada con cache ya realizada
+        return this.collection[propertiesExec.id].pipe(
+          tap(() => {
+            this.finishFuncionality(name, propertiesExec, true);
+          })
+        );
+      }
+      return this.collection[propertiesExec.id];
+    }
+  }
+  /**
+   * Realiza una llamada GET
+   * @param name id de la llamada (contenida en Constans.restConn o una coleccion pasada por properties)
+   * @param data parametros a enviar
+   * @param properties interface PropertiesRestConn
+   */
+  public get(name: string, data, properties: PropertiesRestConn): any {
+    if (this.checkMocks() && !this.hasUtil(properties)) {
+      return this.captureMock(name, properties, methods.get, data);
+    }
+    return this.makeRest(methods.get, name, data, properties);
+  }
+
+  /**
+   * Realiza una llamada POST
+   * @param name id de la llamada (contenida en Constans.restConn o una coleccion pasada por properties)
+   * @param data parametros a enviar
+   * @param properties interface PropertiesRestConn
+   */
+  public post(name: string, data, properties: PropertiesRestConn) {
+    if (this.checkMocks() && !this.hasUtil(properties)) {
+      return this.captureMock(name, properties, methods.post, data);
+    }
+    return this.makeRest(methods.post, name, data, properties);
+  }
+
+  /**
+   * Realiza una llamada PUT
+   * @param name id de la llamada (contenida en Constans.restConn o una coleccion pasada por properties)
+   * @param data parametros a enviar
+   * @param properties interface PropertiesRestConn
+   */
+  public put(name: string, data, properties: PropertiesRestConn) {
+    if (this.checkMocks() && !this.hasUtil(properties)) {
+      return this.captureMock(name, properties, methods.put, data);
+    }
+    return this.makeRest(methods.put, name, data, properties);
+  }
+
+  /**
+   * Realiza una llamada PATCH
+   * @param name id de la llamada (contenida en Constans.restConn o una coleccion pasada por properties)
+   * @param data parametros a enviar
+   * @param properties interface PropertiesRestConn
+   */
+  public patch(name: string, data, properties: PropertiesRestConn) {
+    if (this.checkMocks()) {
+      return this.captureMock(name, properties, methods.patch, data);
+    }
+    return this.makeRest(methods.patch, name, data, properties);
+  }
+
+  /**
+   * Realiza una llamada DELETE
+   * @param name id de la llamada (contenida en Constans.restConn o una coleccion pasada por properties)
+   * @param data parametros a enviar
+   * @param properties interface PropertiesRestConn
+   */
+  public delete(name: string, data, properties: PropertiesRestConn) {
+    if (this.checkMocks()) {
+      return this.captureMock(name, properties, methods.patch, data);
+    }
+    return this.makeRest(methods.delete, name, data, properties);
+  }
+
+  private checkMocks() {
+    return this.storage.get('enableMocks') !== null && this.storage.get('enableMocks') === true;
+  }
+
+  private hasUtil(properties: PropertiesRestConn) {
+    return properties.mockUtil && properties.mockUtil === true;
+  }
+
+  private captureMock(name, propertiesExec, method = null, data = null) {
+    this.setActiveRest(name);
+    const request: HttpRequest<object> = this.getHttpRequest(method, name, name, data, propertiesExec.responseType, propertiesExec.headers);
+
+    const interceptMock = (obsSrc: Observable<HttpResponse<any>>) =>
+      this.mockServ.interceptMock(obsSrc, request, propertiesExec.mockData, name);
+    if (!propertiesExec.errPrefix) {
+      propertiesExec.errPrefix = 'COMMON.CUSTOM_ERRORS.';
+    }
+
+    this.setOpenLoadings(propertiesExec, name);
+
+    let pathMock = './assets/mocks/' + name + '.json';
+    pathMock = pathMock.replace(/_json/g, '');
+    const mth: Observable<any> = this._http.get(pathMock, { observe: 'response' });
+    // intercepts the mock, according to the real request and sets the proper resond
+    return interceptMock(mth)
+      .pipe( // this.schemaService.validateResp(propertiesExec.schema, name),
+        retry(propertiesExec.retry ? propertiesExec.retry : 0),
+        delay(propertiesExec.delay ? propertiesExec.delay : this.randomDelay()),
+        mergeMap( (res: any) => {
+          const resp = this.checkSuccessErrors(name, propertiesExec, res.body);
+          return of(resp);
+      }), catchError((error: any) => {
+        return this.checkFailedErrors(name, propertiesExec, error);
+      })
+    );
+  }
+
+  public initMocks() {
+    if (this.checkMocks()) {
+      if (!this.customer) {
+        // tslint:disable-next-line:max-line-length
+        this.get('customer', {}, { loading: true, lock: true, collection: { customer: NbopflConstants.restConn.customer } }).subscribe(val => {
+          this.customer = val;
+          this.storage.set(NbopflConstants.UserData.CUSTOMER, val);
+          this.token = '';
+        });
+      }
+      // tslint:disable-next-line
+      const userMock = this.updateUserMock(this.customer);
+      this.storage.set(NbopflConstants.UserData.CUSTOMER, userMock);
+      this.storage.set(NbopflConstants.UserData.TOKEN, 'SUPERMOCK');
+      this.storage.set(NbopflConstants.UserData.sessionToken, '0123456789-10a1-1b12-1314-1cde5f1ab61c');
+    }
+  }
+
+  public updateUserMock(userMock: UserMock): UserMock {
+    const key_userDataMock = 'userDataMock';
+    const userDataMock: UserDataMock = this.storage.get(key_userDataMock);
+
+    // Language
+    if (userDataMock.language) {
+      userMock.language = userDataMock.language;
+    }
+    // Segment
+    if (userDataMock.segment && userDataMock.segment.code) {
+      userMock.segment.code = userDataMock.segment.code;
+    }
+    if (userDataMock.showSPBWelcome) {
+      userMock.showSPBWelcome = userDataMock.showSPBWelcome;
+    }
+    if (userDataMock.showCoachMark) {
+      userMock.showCoachMark = userDataMock.showCoachMark;
+    }
+    if (userDataMock.showCoachMarkCustom) {
+      userMock.showCoachMarkCustom = userDataMock.showCoachMarkCustom;
+    }
+
+    // Operativo/Consultivo
+    if (userDataMock.oper) {
+      userMock.indSignActivity = userDataMock.oper.indSignActivity;
+      userMock.indSignStage = userDataMock.oper.indSignStage;
+      userMock.indOperativity = userDataMock.oper.indOperativity;
+      userMock.indOperativitySPNT = userDataMock.oper.indOperativitySPNT;
+      userMock.indConsultive = userDataMock.oper.indConsultive;
+    }
+
+    // Name Surname FullName
+    if (userDataMock.name && userDataMock.surname) {
+      userMock.name = userDataMock.name;
+      userMock.surname = userDataMock.surname;
+      userMock.fullName = userDataMock.surname + ' ' + userDataMock.name;
+      userMock.wellcomeName = userDataMock.name + ' ' + userDataMock.surname;
+    }
+    // OptionMenu
+    // Cmc
+    // add new update properties...
+    return userMock;
+  }
+
+  public checkSuccessErrors(name, propertiesExec, res) {
+    let response = [];
+    const finish = this.finishFuncionality(name, propertiesExec, res);
+    if ((finish && typeof res.body === 'object') || this.checkMocks()) {
+      const refJson = this.checkMocks() && !this.hasUtil(propertiesExec) ? res : res.body;
+
+      this.typeErrSCA(refJson);
+
+      if (refJson && refJson.type && refJson.type === 'warning') {
+        this.typeWarning(propertiesExec, refJson, name);
+      } else if (refJson && refJson.type && refJson.type === 'error') {
+        this.typeError(propertiesExec, refJson, name);
+      } else if (refJson && refJson.errors) {
+        this.reJsonErrors(propertiesExec, refJson, name);
+      }
+      response = refJson;
+    }
+    return response;
+  }
+
+  private reJsonErrors(propertiesExec: any, refJson: any, name: any) {
+    this.resetCacheCauseErrors(propertiesExec);
+    this.sendTealiumEvent(refJson, categoryEvent.error, propertiesExec.url); // Error
+    // NO CONTROLADO EL TYPE
+    if (propertiesExec.forceWarning) {
+      this.sendTealiumEvent(refJson, categoryEvent.aviso, propertiesExec.url); // aviso
+      this.err.addWarning(name, refJson.code && refJson.code !== '1'
+        ? propertiesExec.errPrefix + (refJson.code ? refJson.code : null)
+        : refJson.message
+          ? refJson.message
+          : null, refJson.code !== '1');
+    } else {
+      if (propertiesExec.disableErrors) {
+        this.sendTealiumEvent(refJson, categoryEvent.aviso, propertiesExec.url); // aviso
+      } else {
+        this.sendTealiumEvent(refJson, categoryEvent.error, propertiesExec.url); // error
+        this.gotoErrorPage(errorServer, refJson);
+      }
+    }
+  }
+
+  /**
+   * @description Error.
+   * @private
+   * @param {*} propertiesExec
+   * @param {*} refJson
+   * @param {*} name
+   * @memberof RestConnService
+   */
+  private typeError(propertiesExec: any, refJson: any, name: any): void {
+    this.resetCacheCauseErrors(propertiesExec);
+    // ERROR DIRECTO
+    if (propertiesExec.forceWarning) {
+      this.forceError(refJson, propertiesExec, name);
+    } else {
+      if (!propertiesExec.disableErrors) {
+        // Quieren saber el error que da el código 1 por tealium antes de sobreescribirlo nosotros con un error genérico US-5654
+        this.sendTealiumEvent(refJson, categoryEvent.error, propertiesExec.url);
+        // TODO: Quitar esto cuando los errores de code = '1' esten controlados
+        if (refJson.code === '1') {
+          refJson.code = 'ERRGEN';
+        }
+        this.err.addCustomError(name, refJson);
+      } else if (refJson.code) {
+        this.sendTealiumEvent(refJson, categoryEvent.aviso, name);
+      }
+    }
+  }
+
+  /**
+   * @description fuerza error. Añade warning.
+   * @private
+   * @param {*} refJson
+   * @param {*} propertiesExec
+   * @param {*} name
+   * @memberof RestConnService
+   */
+  private forceError(refJson: any, propertiesExec: any, name: any): void {
+    this.sendTealiumEvent(refJson, categoryEvent.aviso, propertiesExec.url); // aviso
+    this.err.addWarning(name, refJson.code && refJson.code !== '1' ? propertiesExec.errPrefix + refJson.code : refJson.message ? refJson.message : null, refJson.code !== '1');
+  }
+
+  /**
+   * @description setea myCode.
+   * @private
+   * @param {*} myCode
+   * @param {*} refJson
+   * @returns {*}
+   * @memberof RestConnService
+   */
+  private setMyCode(myCode: any, refJson: any): any {
+    try {
+      myCode = refJson.code;
+      if (!myCode) {
+        myCode = 'server';
+      }
+    } catch (err) {
+      myCode = 'server';
+    }
+    return myCode;
+  }
+
+  /**
+   * @description Warning
+   * @private
+   * @param {*} propertiesExec
+   * @param {*} refJson
+   * @param {*} name
+   * @memberof RestConnService
+   */
+  private typeWarning(propertiesExec: any, refJson: any, name: any): void {
+    this.resetCacheCauseErrors(propertiesExec);
+    this.sendTealiumEvent(refJson, categoryEvent.aviso, propertiesExec.url); // aviso
+    // Quieren saber el error que da el código 1 por tealium antes de sobreescribirlo nosotros con un error genérico US-5654
+    if (refJson.code === '1') {
+      refJson.code = 'ERRGEN';
+    }
+    // WARNING DIRECTO
+    this.err.addWarning(name, refJson.code && refJson.code !== '1' ? propertiesExec.errPrefix + refJson.code : refJson.message ? refJson.message : null, refJson.code !== '1');
+  }
+
+  /**
+   * @description SCA.
+   * @private
+   * @param {*} refJson
+   * @memberof RestConnService
+   */
+  private typeErrSCA(refJson: any): void {
+    if (refJson && refJson.type && refJson.type === 'ERR_SCA') {
+      this.scaInfoService.updateScaData({ login: '0' }); // codigo de pedir sca
+      this.observatoryService.setData('scaLock', true);
+      throw new Error('Block By SCA');
+    }
+  }
+
+  public checkFailedErrors(name, propertiesExec, error) {
+    if (error.status === 401) {
+      /** Changes behaviour when request sends 401, redirects to login */
+      // @TODO revisar que funciona correctamente generando un 401 por tiempo de sesion en espera mayor a 16-20 minutos
+      this.hasLoggedOut = true;
+      sessionStorage.setItem('error401', 'true');
+      window.location.href = '/login/';
+    } else {
+      if (error.schema) {
+        this.err.addCustomError(name, { code: 'ERRGEN' });
+      } else if (propertiesExec.forceWarning) {
+        this.FailedErrorsForceWarning(error, propertiesExec, name);
+      } else if (!propertiesExec.disableErrors) {
+        if (error.status) {
+          this.sendTealiumEvent(error, categoryEvent.error, propertiesExec.url); // error
+          if (!propertiesExec.checkStatus || propertiesExec.checkStatus.indexOf(error.status) <= -1) {
+            switch (error.status) {
+              case 500:
+                this.gotoErrorPage('/error/internal', {});
+                break;
+              case 403:
+                this.gotoErrorPage('/error/GADS', {});
+                break;
+              case 408:
+              case 409:
+              case 503:
+              case 504:
+              default:
+                if (!propertiesExec.forceWarning) {
+                  this.gotoErrorPage(errorServer, error.status);
+                } else {
+                  this.err.addWarning(name, propertiesExec.errPrefix + error.status);
+                }
+                break;
+            }
+          }
+          // Error en la carga del menú
+          // } else if (error.status === 0) {
+          //   window.location.href = './server-error-standalone.html';
+        } else {
+          this.gotoErrorPage(errorServer, {});
+          // CASO DEL DISABLE ERRORS
+          // if (error.url === null) {
+          //   if (name !== 'pgImgCard') {
+          //     this.gotoErrorPage(errorServer, {});
+          //   }
+          //   return Observable.throw(error || 'Server error');
+          // } else {
+          // this._tealium.event('evSendAction', { 'element': '', 'action': 'empty', 'category': 'error' });
+          //   this.gotoErrorPage(errorServer, {});
+          // }
+        }
+      } else {
+        this.statusUnknownError(error, propertiesExec, name);
+      }
+    }
+    return observableThrowError(error || 'Server error');
+  }
+
+  /**
+   * @description forceWarning.
+   * @private
+   * @param {*} error
+   * @param {*} propertiesExec
+   * @param {*} name
+   * @memberof RestConnService
+   */
+  private FailedErrorsForceWarning(error: any, propertiesExec: any, name: any): void {
+    if (error.status) {
+      this.sendTealiumEvent(error, categoryEvent.aviso, propertiesExec.url); // aviso
+      this.err.addWarning(name, propertiesExec.errPrefix + error.status);
+    } else {
+      this.sendTealiumEvent(error, categoryEvent.aviso, propertiesExec.url); // aviso
+      this.err.addWarning(name, 'COMMON.CUSTOM_ERRORS.ERRGEN');
+    }
+  }
+
+  private statusUnknownError(error: any, propertiesExec: any, name: any) {
+    if (!error.status && error.statusText === 'Unknown Error') {
+      if (!propertiesExec.disableErrors && !propertiesExec.forceWarning) {
+        this.gotoErrorPage(errorServer, {});
+      } else {
+        if (propertiesExec.forceWarning && propertiesExec.customError) {
+          this.err.addCustomError(name, { code: 'ERRGEN' });
+        } else if (propertiesExec.disableErrors && propertiesExec.customError) {
+          this.err.addCustomError(name, {});
+        }
+      }
+    }
+  }
+
+  /**
+   * Envía un evento para Tealium
+   * @param refJson objeto con el error que nos devuelve la llamada,
+   * @param categoryType objeto con el error que nos devuelve la llamada
+   */
+  sendTealiumEvent(refJson, categoryType, url) {
+    this._tealium.event({
+      element: '{ url: ' + url + '}',
+      action: '{' + (refJson.code ? refJson.code : refJson.status) + ' : ' + (refJson.message ? refJson.message : null) + '}',
+      category: categoryType
+    });
+  }
+
+  /**
+   * Retorna entre 250 y 500 milisegundos
+   */
+  private randomDelay(min = 250, max = 500) {
+    // Create byte array and fill with 1 random number
+    const byteArray = new Uint8Array(1);
+    const _crypto = window.crypto || window['msCrypto']; // msCrypto para iE
+    _crypto.getRandomValues(byteArray);
+
+    const range = max - min + 1;
+    const max_range = 256;
+    if (byteArray[0] >= Math.floor(max_range / range) * range) {
+      return this.randomDelay(min, max);
+    }
+    const _number = min + (byteArray[0] % range);
+    return _number;
+  }
+
+  /**
+   * Resetea la llamada para la cache en caso de que sea error o warning
+   * @param propertiesRef
+   */
+  resetCacheCauseErrors(propertiesRef) {
+    try {
+      if (propertiesRef && this.collection[propertiesRef.id]) {
+        this.collection[propertiesRef.id] = null;
+      }
+    } catch (error) {}
+  }
+
+  /**
+   * Resetea todas las llamadas existentes en la cache que coincidan con la url del servicio
+   * @param propertiesRef
+   */
+  resetAllCacheCallsByUrl(url) {
+    try {
+      if (url) {
+        const keys = Object.keys(this.collection);
+        const keysSearched = keys.filter(val => {
+          if (val.indexOf(url) === 0) {
+            return true;
+          }
+          return false;
+        });
+        if (keysSearched.length > 0) {
+          keysSearched.forEach(val => {
+            if (this.collection.hasOwnProperty(val)) {
+              this.collection[val] = null;
+            }
+          });
+        }
+      }
+    } catch (error) {
+    }
+  }
+
+  /**
+   * Función que añade la key del mensaje de error
+   * @param name Id del error (id del rest en el caso de gestion de errores de restConn)
+   * @param textValue Codigo del mensaje asociado a ese error
+   */
+  public addCustomError(name: string, extraData: object, titleError?: string, forceText: boolean = false) {
+    this.err.addCustomError(name, extraData, titleError, forceText);
+  }
+
+}
